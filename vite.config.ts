@@ -1,8 +1,9 @@
 import path from 'path';
-import { defineConfig } from 'vite';
+import { defineConfig, loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
 
-export default defineConfig(() => {
+export default defineConfig(({ mode }) => {
+  const env = loadEnv(mode, process.cwd(), '');
   return {
     server: {
       port: 3000,
@@ -10,6 +11,11 @@ export default defineConfig(() => {
     },
     base: '/adk-session-json-viewer/',
     plugins: [react()],
+    define: {
+      'process.env.GOOGLE_API_KEY': JSON.stringify(env.GOOGLE_API_KEY || process.env.GOOGLE_API_KEY),
+      'process.env.GOOGLE_CLIENT_ID': JSON.stringify(env.GOOGLE_CLIENT_ID || process.env.GOOGLE_CLIENT_ID),
+      'process.env.GOOGLE_APP_ID': JSON.stringify(env.GOOGLE_APP_ID || process.env.GOOGLE_APP_ID),
+    },
     resolve: {
       alias: {
         '@': path.resolve(__dirname, '.'),
