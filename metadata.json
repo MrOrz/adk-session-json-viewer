@@ -1,0 +1,5 @@
+{
+  "name": "ADK Session Viewer",
+  "description": "A specialized viewer for ADK chat session logs, featuring tool call visualization, raw JSON inspection, and a clean chat interface.",
+  "requestFramePermissions": []
+}
