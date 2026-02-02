@@ -31,23 +31,23 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ events, onEventSelect, se
 
         {sortedEvents.map((event) => {
           // Normalize author. 'user' is user. 'writer', 'model', or others are assistant.
-          const isUser = event.author === 'user' || event.content?.role === 'user';
-          
+          const isUser = event.author === 'user';
+
           return (
-            <div 
-              key={event.id} 
+            <div
+              key={event.id}
               className={`flex w-full ${isUser ? 'justify-end' : 'justify-start'}`}
             >
-              <MessageBubble 
-                event={event} 
-                isUser={isUser} 
+              <MessageBubble
+                event={event}
+                isUser={isUser}
                 onClick={() => !isUser && onEventSelect(event)}
                 isSelected={selectedEventId === event.id}
               />
             </div>
           );
         })}
-        
+
         <div ref={bottomRef} className="h-4" />
       </div>
     </div>
