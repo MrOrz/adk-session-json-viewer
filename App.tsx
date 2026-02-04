@@ -1,14 +1,128 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { AdkSession, AdkEvent } from './types';
-import { Upload, FileText, Info, X, MessageSquare } from 'lucide-react';
+import { Upload, FileText, Info, X, MessageSquare, Cloud, Loader2 } from 'lucide-react';
 import ChatInterface from './components/ChatInterface';
 import DetailPanel from './components/DetailPanel';
+
+declare global {
+  interface Window {
+    gapi: any;
+    google: any;
+  }
+}
+
+const GOOGLE_API_KEY = process.env.GOOGLE_API_KEY;
+const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
+const GOOGLE_APP_ID = process.env.GOOGLE_APP_ID;
 
 export default function App() {
   const [session, setSession] = useState<AdkSession | null>(null);
   const [selectedEvent, setSelectedEvent] = useState<AdkEvent | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const [accessToken, setAccessToken] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    const initGapi = () => {
+      if (window.gapi) {
+        window.gapi.load('picker', () => {
+          console.log('Google Picker API loaded');
+        });
+      }
+    };
+
+    if (window.gapi) {
+      initGapi();
+    } else {
+      const script = document.querySelector('script[src="https://apis.google.com/js/api.js"]');
+      script?.addEventListener('load', initGapi);
+    }
+
+    // Check for fileId in URL
+    const params = new URLSearchParams(window.location.search);
+    const fileId = params.get('fileId');
+    if (fileId && GOOGLE_API_KEY) {
+      loadSessionFromDrive(fileId);
+    }
+  }, []);
+
+  const handleGoogleDrivePick = () => {
+    if (!GOOGLE_CLIENT_ID || !GOOGLE_API_KEY) {
+      setError("Google Drive integration is not configured. Please provide API Key and Client ID.");
+      return;
+    }
+
+    if (!window.google) {
+      setError("Google API failed to load. Please check your internet connection.");
+      return;
+    }
+
+    const tokenClient = window.google.accounts.oauth2.initTokenClient({
+      client_id: GOOGLE_CLIENT_ID,
+      scope: 'https://www.googleapis.com/auth/drive.readonly',
+      callback: async (response: any) => {
+        if (response.error !== undefined) {
+          setError(`Google Auth Error: ${response.error}`);
+          return;
+        }
+        setAccessToken(response.access_token);
+        createPicker(response.access_token);
+      },
+    });
+
+    if (accessToken === null) {
+      tokenClient.requestAccessToken({ prompt: 'consent' });
+    } else {
+      tokenClient.requestAccessToken({ prompt: '' });
+    }
+  };
+
+  const createPicker = (token: string) => {
+    const picker = new window.google.picker.PickerBuilder()
+      .addView(window.google.picker.ViewId.DOCS)
+      .setOAuthToken(token)
+      .setDeveloperKey(GOOGLE_API_KEY)
+      .setAppId(GOOGLE_APP_ID)
+      .setCallback(pickerCallback)
+      .build();
+    picker.setVisible(true);
+  };
+
+  const pickerCallback = (data: any) => {
+    if (data[window.google.picker.Response.ACTION] === window.google.picker.Action.PICKED) {
+      const doc = data[window.google.picker.Response.DOCUMENTS][0];
+      const fileId = doc[window.google.picker.Document.ID];
+      loadSessionFromDrive(fileId);
+    }
+  };
+
+  const loadSessionFromDrive = async (fileId: string) => {
+    setIsLoading(true);
+    setError(null);
+    try {
+      const response = await fetch(
+        `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media&key=${GOOGLE_API_KEY}`
+      );
+      if (!response.ok) {
+        throw new Error(`Failed to fetch file: ${response.statusText}`);
+      }
+      const json = await response.json();
+      if (!json.events || !Array.isArray(json.events)) {
+        throw new Error("Invalid ADK Session format: 'events' array missing.");
+      }
+      setSession(json);
+      // Update URL with fileId
+      const url = new URL(window.location.href);
+      url.searchParams.set('fileId', fileId);
+      window.history.pushState({}, '', url.toString());
+    } catch (err: any) {
+      setError(err.message || "Failed to load session from Google Drive.");
+      console.error(err);
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -79,18 +193,34 @@ export default function App() {
               <h2 className="text-2xl font-bold text-slate-800 mb-2">Upload Session Log</h2>
               <p className="text-slate-500 mb-8">Select a JSON file generated from an ADK web session to visualize the conversation.</p>
               
-              <label className="block w-full cursor-pointer group">
-                <div className="w-full py-3 px-4 bg-indigo-600 text-white font-medium rounded-xl text-center shadow-lg shadow-indigo-200 group-hover:bg-indigo-700 transition-all transform group-hover:-translate-y-0.5">
-                  Choose File
-                </div>
-                <input 
-                  type="file" 
-                  ref={fileInputRef}
-                  accept=".json,application/json" 
-                  className="hidden" 
-                  onChange={handleFileUpload}
-                />
-              </label>
+              <div className="space-y-4">
+                <label className="block w-full cursor-pointer group">
+                  <div className="w-full py-3 px-4 bg-indigo-600 text-white font-medium rounded-xl text-center shadow-lg shadow-indigo-200 group-hover:bg-indigo-700 transition-all transform group-hover:-translate-y-0.5 flex items-center justify-center gap-2">
+                    <Upload className="w-5 h-5" />
+                    Choose Local File
+                  </div>
+                  <input
+                    type="file"
+                    ref={fileInputRef}
+                    accept=".json,application/json"
+                    className="hidden"
+                    onChange={handleFileUpload}
+                  />
+                </label>
+
+                <button
+                  onClick={handleGoogleDrivePick}
+                  disabled={isLoading}
+                  className="w-full py-3 px-4 bg-white text-slate-700 font-medium rounded-xl text-center border border-slate-200 shadow-sm hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed transition-all transform hover:-translate-y-0.5 flex items-center justify-center gap-2"
+                >
+                  {isLoading ? (
+                    <Loader2 className="w-5 h-5 text-indigo-600 animate-spin" />
+                  ) : (
+                    <Cloud className="w-5 h-5 text-indigo-600" />
+                  )}
+                  {isLoading ? 'Loading...' : 'Load from Google Drive'}
+                </button>
+              </div>
               
               {error && (
                 <div className="mt-6 p-4 bg-red-50 text-red-700 text-sm rounded-lg flex items-start gap-2 text-left">
